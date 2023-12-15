@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -114,12 +115,43 @@ func AuthenticateDrive(){
 	}
 }
 
-func SearchFiles(projectName string) ([]*drive.File){
+func getSearchQuery(projectName string, allfiles bool) string{
+	var searchQuery string
+
+	if allfiles{
+		searchQuery = fmt.Sprintf("name contains '%v'",projectName)
+	}else{
+		hashFileName := fmt.Sprintf("%v_HashFile",projectName)
+		searchQuery = fmt.Sprintf("name = '%v'",hashFileName)
+	}
+
+	return searchQuery
+}
+
+func driveResultsValidation(allfiles bool, hashFileCheck bool, zipFileCheck bool){
+
+	if allfiles{
+		if !hashFileCheck{
+			log.Fatal("Hashfile is missing from drive !")
+		}
+	
+		if !zipFileCheck{
+			log.Fatal("Update.zip file is missing from drive !")
+		}
+	}else{
+		if !hashFileCheck{
+			log.Fatal("Hashfile is missing from drive !")
+		}
+	}
+}
+
+func SearchFiles(projectName string, allfiles bool) ([]*drive.File){
 
 	var driveFiles []*drive.File
+	searchQuery := getSearchQuery(projectName, allfiles)
 
-	hashFileName := fmt.Sprintf("%v_HashFile",projectName)
-	searchQuery := fmt.Sprintf("name = '%v'",hashFileName)
+	hashFileCheck := false
+	zipFileCheck := false
 
 	driveService := Authenticate()
 
@@ -132,16 +164,30 @@ func SearchFiles(projectName string) ([]*drive.File){
 			fmt.Println("No files found.")
 	} else {
 			for _, i := range r.Files {
-					driveFiles = append(driveFiles, i)
+				driveFiles = append(driveFiles, i)
+				driveFileNameSplit := strings.Split(i.Name, "_")
+
+				if(driveFileNameSplit[1] == "HashFile"){
+					hashFileCheck = true
+				}else if(driveFileNameSplit[1] == "update.zip"){
+					zipFileCheck = true
+				}
 			}
 	}
 
+	if allfiles && len(r.Files) > 0{
+		driveResultsValidation(true, hashFileCheck, zipFileCheck)
+	}else if !allfiles && len(r.Files) > 0{
+		driveResultsValidation(false, hashFileCheck, zipFileCheck)
+	}
+
 	return driveFiles
+	
 }
 
 func GetRemoteHashFile(projectName string) bool{
     driveService := Authenticate()
-    driveFiles := SearchFiles(projectName)
+    driveFiles := SearchFiles(projectName, false)
 
     if len(driveFiles) == 1{
 		for key, value := range driveFiles {
@@ -177,7 +223,7 @@ func GetRemoteHashFile(projectName string) bool{
 
 func DeleteOldData(projectName string){
 	driveService := Authenticate()
-	driveFiles := SearchFiles(projectName)
+	driveFiles := SearchFiles(projectName, true)
 
 	if(len(driveFiles) > 0){
 		for _, value := range driveFiles{
